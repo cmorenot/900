@@ -62,3 +62,10 @@ El objetivo principal del repositorio es PS4, pero se intenta mantener compatibi
 
 **PRs son bienvenidas!**  
 Si quieres mejorar estabilidad, corregir exploits o añadir compatibilidad para PS5, eres libre de contribuir.
+
+---
+
+## 🌐 Españolizado y recursos adicionales
+
+Este README ha sido **españolizado** porque sí y para sí.  
+Puedes ver más información y un **logo bonito** en la página: [https://cmorenot.github.io/900](https://cmorenot.github.io/900)  
