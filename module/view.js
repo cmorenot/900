@@ -153,7 +153,7 @@ const VariableMixin = superclass => class extends superclass {
 
 export class Byte extends VariableMixin(View1) {}
 export class Short extends VariableMixin(View2) {}
-// Int was already taken by int64.mjs
+// Int was already taken by int64.js
 export class Word extends VariableMixin(View4) {}
 
 export class LongArray {

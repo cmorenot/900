@@ -1,61 +1,30 @@
-<!DOCTYPE html>
 <html>
-<head>
-    <title>Host cemt 9.00 NO USB</title>
-    <style>
-        body {
-            background-color: #063FAB; /* fondo azul uniforme */
-            color: white;
-            font-size: 28px;
-            text-align: center;
-            margin: 0;
-            overflow: hidden;
-        }
-        .content {
-            position: relative;
-            top: 20%; /* ajusta esta distancia a tu gusto */
-        }
-        #message {
-            font-size: 35px;
-            font-weight: bold;
-            text-shadow: 3px 2px #3d3939;
-            margin-top: 40px;
-        }
-        #message .highlight {
-            color: #ee596f;
-        }
-        #console {
-            font-family: 'logging';
-            margin-bottom: 20px;
-        }
-        .shared-nav-ps-logo {
-            width: 250px;
-            height: auto;
-        }
-    </style>
-    <script>
-        function showMessage(msg) {
-            document.getElementById("message").innerHTML = msg;
-        }
-        if (window.applicationCache.status == '0') {
-            window.location.replace("cache.html");
-        }
-    </script>
-    <script src="loader.js"></script>
-    <script type="module" src="alert.js"></script>
-</head>
-<body>
-    <div id="console"></div>
-    <div class="content">
-        <!-- SVG del logo de Playstation -->
-        <svg class="shared-nav-ps-logo" xmlns="http://www.w3.org/2000/svg" 
-             viewBox="4.3 9.5 41.1 31">
-            <path d="M5.8 32.1c-1.5 1-1 2.9 2.2 3.8 3.3 1.1 6.9 1.4 10.4.8.2 0 .4-.1.5-.1v-3.4l-3.4 1.1c-1.3.4-2.6.5-3.9.2-1-.3-.8-.9.4-1.4l6.9-2.4V27l-9.6 3.3c-1.2.4-2.4 1-3.5 1.8zm23.2-15v9.7c4.1 2 7.3 0 7.3-5.2 0-5.3-1.9-7.7-7.4-9.6C26 11 23 10.1 20 9.5v28.9l7 2.1V16.2c0-1.1 0-1.9.8-1.6 1.1.3 1.2 1.4 1.2 2.5zm13 12.7c-2.9-1-6-1.4-9-1.1-1.6.1-3.1.5-4.5 1l-.3.1v3.9l6.5-2.4c1.3-.4 2.6-.5 3.9-.2 1 .3.8.9-.4 1.4l-10 3.7V40L42 34.9c1-.4 1.9-.9 2.7-1.7.7-1 .4-2.4-2.7-3.4z" 
-                  fill="white"/>
-        </svg>
+    <head>
+        <meta charset='utf-8'>
+        <title>PSFree-Lapse Exploit For PS4 9.00</title>
 
-        <!-- Mensaje debajo del logo -->
-        <div id="message" class="info">Activando Webkit Exploit, Espere por favor ...</div>
-    </div>
-</body>
+        <script>
+        if (window.applicationCache.status=='0') {
+          window.location.replace("cache.html");
+        }
+        </script>
+    </head>
+
+    <body>
+        <!-- Texto inicial -->
+        <div id="status" style="font-size:24px; font-weight:bold;">
+            Activando xploit...
+        </div>
+
+        <!-- Cuando alert.js termine, cambiará el texto -->
+        <script type="module">
+            import './alert.js';
+
+            // Cuando alert.js termine su proceso, debe llamar a esta función.
+            // Puedes colocar este callback al FINAL de alert.js
+            window.xploitFinished = function() {
+                document.getElementById("status").innerText = "Xploit activado";
+            };
+        </script>
+    </body>
 </html>
