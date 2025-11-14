@@ -2,29 +2,19 @@
     <head>
         <meta charset='utf-8'>
         <title>PSFree-Lapse Exploit For PS4 9.00</title>
-
+        
         <script>
-        if (window.applicationCache.status=='0') {
+        if (window.applicationCache.status=='0')
+        {
           window.location.replace("cache.html");
         }
         </script>
     </head>
-
     <body>
-        <!-- Texto inicial -->
-        <div id="status" style="font-size:24px; font-weight:bold;">
-            Activando xploit...
-        </div>
+        PSFree: A PS4/PS5 Exploit Chain
+        <br>
 
-        <!-- Cuando alert.js termine, cambiará el texto -->
-        <script type="module">
-            import './alert.js';
-
-            // Cuando alert.js termine su proceso, debe llamar a esta función.
-            // Puedes colocar este callback al FINAL de alert.js
-            window.xploitFinished = function() {
-                document.getElementById("status").innerText = "Xploit activado";
-            };
-        </script>
+        <pre id='console'></pre>
     </body>
+    <script type='module' src='./alert.mjs'></script>
 </html>
