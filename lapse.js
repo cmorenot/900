@@ -1684,6 +1684,7 @@ function runBinLoader() {
     );
 
     log('BinLoader is ready. Send a payload to port 9020 now');
+    document.getElementById("estadoXploit").innerText = "Exploit activado ✔";
 }
 
 // overview:
@@ -1865,6 +1866,7 @@ kexploit().then(() => {
 //Load ABC fix as a regular Payload
 setTimeout(PayloadLoader("aio_patches.bin"),500);
 log("AIO Fixes Applied.!");
+document.getElementById("estadoXploit").innerText = "Exploit activado ✔";
 //Load GoldHEN :)
 setTimeout(PayloadLoader("goldhen.bin"),500);
 log("GoldHEN Loaded.!");
